@@ -1,0 +1,114 @@
+---
+title: '1025'
+author: "chanwoo"
+date: '2019 10 25 '
+output: html_document
+---
+
+# 과제
+   - 카멜레존  
+      ○ 매출 데이터   ( 유동인구)  
+      ○ 서울권 범위  
+      
+      ○ 낮(9시 ~ 저녁 6) 과 밤(나머지): 상진   
+      ○ 주말과 평일: 유빈  
+      ○ 월별: 찬우  
+
+```{r 세팅, include=FALSE}
+# library(servr)
+library(dplyr)
+library(ggplot2)
+library(tidyr)
+library(stringr)
+library(DT)
+library(scales)
+
+options(scipen = 100)
+
+# rmdv2(serve = TRUE, in_session = FALSE, deamon = TRUE)
+load("../RData/data.sales.time.RData")
+```
+
+
+```{r 데이터 좁히기}
+# 전국 -> 서울권
+data.sales.time %>% head
+# 서울시 코드 = 11
+data.sales.time_seoul<- data.sales.time %>% filter(str_sub(BLOCK_CD, 1, 2) == 11) 
+```
+
+```{r 서울 매출 시간 데이터 개수}
+data.sales.time_seoul %>% nrow
+data.sales.time_seoul %>% nrow / data.sales.time %>% nrow
+```
+서울시 데이터 개수: 2,394,179개(전체 데이터의 15.8%)
+
+# 변수 선택
+'월별로 매출의 차이가 있는가'를 확인  
+매출액(SALE_AMT)이 관심변수  
+시간대별로 되어 있는 매출액을 다 합쳐보자  
+```{r 하루 총 매출 변수}
+# 합칠 변수 만들기
+time_vari <- c(paste0("SALE_AMT_", sprintf("%02d",seq(0,23)), "TMST"))
+
+# 시간대별 변수 합쳐서 총 하루 매출 변수 만들기
+data.sales.time_seoul <-  data.sales.time_seoul %>% mutate(SALE_AMT_ALL = apply(data.sales.time_seoul[,time_vari],1,sum))
+```
+
+집계를 내보자  
+집계 기준이 되는 변수는 월별(STD_YM), 소지역 코드(BLOCK_CD), 그리고 업종(..._NM)
+
+
+# 데이터 분석
+해당 집계 테이블 가지고 무엇을 조사해볼까?  
+- 월별로 소지역에서 큰 차이가 보였는가?  
+- 월별로 업종에서 큰 차이가 보였는가?  
+```{r 월별로 소지역에서 큰 차이가 보였는가?}
+# 월별로 소지역에서 큰 차이가 보였는가?
+summary.BLOCK_CD <- data.sales.time_seoul %>% group_by(STD_YM, BLOCK_CD) %>% 
+   summarise(SALES_ALL = sum(SALE_AMT_ALL))
+
+summary.BLOCK_CD %>% head(10)
+
+summary.BLOCK_CD.monthSales <- summary.BLOCK_CD %>% spread(STD_YM, SALES_ALL)
+
+summary.BLOCK_CD.monthSales %>% head(10)
+
+# 통계 요약에 몇 개가 있는가?
+summary.BLOCK_CD.monthSales %>% nrow # 16,405 개
+
+# 각 월에 na가 몇 개 있는가?
+summary.BLOCK_CD.monthSales %>% is.na %>% colSums()
+
+# na 들어있는 행 제거
+summary.BLOCK_CD.monthSales <- summary.BLOCK_CD.monthSales %>% drop_na()
+
+summary.BLOCK_CD.monthSales %>% nrow # 15,408 개
+
+# 차이 확인하기
+## 방법 1. 최소값, 최대값 차이
+summary.BLOCK_CD.monthSales <- summary.BLOCK_CD.monthSales %>% 
+   mutate(MaxMinGap = apply(.[,-1] ,1, max) - apply(.[,-1] ,1, min))
+summary.BLOCK_CD.monthSales
+
+t <- summary.BLOCK_CD.monthSales[,2:7] %>% colSums() 
+t <- data.frame(month = names(t), value = t, row.names = NULL)
+t
+t %>% ggplot(aes(x = month, y = value)) + geom_bar(stat = "identity") +
+   scale_y_continuous(label = comma) 
+
+
+```
+y의 값 매출액의 단위는 무엇인가?  
+
+```{r 월별로 업종에서 큰 차이가 보였는가?}
+summary.sales.LCLS <- data.sales.time_seoul %>% group_by(STD_YM, BLOCK_CD, LCLS_NM) %>% summarise(N = n(),
+                                                                            SALES_ALL = sum(SALE_AMT_ALL))
+summary.sales.LCLS
+
+summary.sales.LCLS %>% filter(BLOCK_CD == 11010530100010000384)
+
+save(summary.sales.LCLS, summary.BLOCK_CD.monthSales, file = "summary.RData")
+```
+카테고리가 많아 ShinyR을 통해 확인을 해봐야 한다.
+
